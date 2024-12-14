@@ -8,6 +8,7 @@
   var connected = false;
   var input;
   var output;
+  var intervalId;
 
   function init()
   {
@@ -16,6 +17,7 @@
 
       input.value = ""
 //    testWebSocket();
+      
   }
 
   function openWebSocket(uri)
@@ -25,6 +27,10 @@
     websocket.onclose = function(evt) { onClose(evt) };
     websocket.onmessage = function(evt) { onMessage(evt) };
     websocket.onerror = function(evt) { onError(evt) };
+    
+    // intervalId = setInterval(function() {
+    //   websocket.send(JSON.stringify({"type": "heartbeat", "data": "ping!"}));
+    // }, 10000);
   }
 
   function onOpen(evt)
@@ -39,6 +45,7 @@
     // show enter name
     let enterName = document.getElementById("enter_name")
     enterName.style.display = 'block'
+    clearInterval(intervalId);
   }
 
   function onMessage(evt)
@@ -48,12 +55,12 @@
 
   function onError(evt)
   {
-    writeToScreen('<span style="color: red;">ERROR:</span> ' + evt);
+    writeToScreen('<span style="color: red;">ERROR:</span> ' + JSON.stringify(evt));
   }
 
   function doSend(message)
   {
-    websocket.send(message);
+    websocket.send(JSON.stringify({"type": "answer", "data": message}));
   }
 
   function writeToScreen(message)
