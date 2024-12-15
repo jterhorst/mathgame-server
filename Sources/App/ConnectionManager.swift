@@ -40,21 +40,12 @@ struct Event: Codable {
     let players: [Player]?
 }
 
-class Question: Codable {
-    var lhs: Int
-    var rhs: Int
-    var correctAnswer: Int
+final class Question: Codable {
+    let lhs: Int
+    let rhs: Int
+    let correctAnswer: Int
 
     init() {
-        let lhs = Int.random(in: 1...10)
-        let rhs = Int.random(in: 1...10)
-        let correctAnswer = lhs * rhs
-        self.lhs = lhs
-        self.rhs = rhs
-        self.correctAnswer = correctAnswer
-    }
-
-    func update() {
         let lhs = Int.random(in: 1...10)
         let rhs = Int.random(in: 1...10)
         let correctAnswer = lhs * rhs
@@ -111,13 +102,37 @@ struct ConnectionManager: Service {
             await self.send(event: Event(type: .answer, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
         }
 
+        func processAnswer(_ event: Event, connection: Connection) async {
+            // self.logger.info("Answer", metadata: ["answer": .string(event.data)])
+            guard let answer = Int(event.data) else { return }
+            let playerName = connection.playerName
+            
+            var hadCorrectAnswer = false
+            if answer == self.question.correctAnswer {
+                await self.updateScore(name: playerName)
+                hadCorrectAnswer = true
+                // self.logger.info("Correct answer", metadata: ["player": .string(playerName)])
+            }
+            await self.send(event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            
+            if hadCorrectAnswer {
+                // self.logger.info("New question")
+                self.question = Question()
+                await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            }
+        }
+
+        func resendQuestion(connection: Connection) async {
+            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+        }
+
         var outboundConnections: [String: Connection]
+        var question: Question = Question()
     }
 
     let connectionStream: AsyncStream<Connection>
     let connectionContinuation: AsyncStream<Connection>.Continuation
     let logger: Logger
-    var question: Question = Question()
 
     init(logger: Logger) {
         self.logger = logger
@@ -127,7 +142,7 @@ struct ConnectionManager: Service {
     func run() async {
         await withGracefulShutdownHandler {
             await withDiscardingTaskGroup { group in
-                var outboundCounnections = OutboundConnections()
+                let outboundCounnections = OutboundConnections()
                 for await connection in self.connectionStream {
                     group.addTask {
                         self.logger.info("add connection", metadata: ["name": .string(connection.playerName)])
@@ -138,12 +153,12 @@ struct ConnectionManager: Service {
                             return
                         }
 
-                        await resendQuestion(connection: connection, outboundConnections: &outboundCounnections)
+                        await outboundCounnections.resendQuestion(connection: connection)
 
                         do {
                             for try await input in connection.inbound.messages(maxSize: 1_000_000) {
                                 guard case .text(let text) = input else { continue }
-                                await processInput(text, connection: connection, outboundCounnections: &outboundCounnections)
+                                await processInput(text, connection: connection, outboundCounnections: outboundCounnections)
                             }
                         } catch {}
 
@@ -159,7 +174,7 @@ struct ConnectionManager: Service {
         }
     }
     
-    private func processInput(_ input: String, connection: Connection, outboundCounnections: inout OutboundConnections) async {
+    private func processInput(_ input: String, connection: Connection, outboundCounnections: OutboundConnections) async {
         self.logger.debug("Input", metadata: ["message": .string(input)])
         let obj = try? JSONDecoder().decode(Event.self, from: Data(input.utf8))
         guard let obj = obj else { return }
@@ -168,7 +183,7 @@ struct ConnectionManager: Service {
         
         // guard obj.type == .answer else { return }
         if obj.type == .answer {
-            await processAnswer(obj, connection: connection, outboundCounnections: &outboundCounnections)
+            await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
             self.logger.info("Heartbeat")
             await outboundCounnections.send(event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
@@ -177,29 +192,9 @@ struct ConnectionManager: Service {
         // await outboundCounnections.send(event: Event(type: <#T##EventTypes#>, data: <#T##String#>))
     }
 
-    private func resendQuestion(connection: Connection, outboundConnections: inout OutboundConnections) async {
-        await outboundConnections.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: outboundConnections.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
-    }
+    
 
-    private func processAnswer(_ event: Event, connection: Connection, outboundCounnections: inout OutboundConnections) async {
-        self.logger.info("Answer", metadata: ["answer": .string(event.data)])
-        guard let answer = Int(event.data) else { return }
-        let playerName = connection.playerName
-        
-        var hadCorrectAnswer = false
-        if answer == self.question.correctAnswer {
-            await outboundCounnections.updateScore(name: playerName)
-            hadCorrectAnswer = true
-            self.logger.info("Correct answer", metadata: ["player": .string(playerName)])
-        }
-        await outboundCounnections.send(event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: outboundCounnections.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
-        
-        if hadCorrectAnswer {
-            self.logger.info("New question")
-            self.question.update()
-            await outboundCounnections.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: outboundCounnections.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
-        }
-    }
+    
 
     func addUser(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream {
         let outputStream = OutputStream()
