@@ -64,13 +64,13 @@ struct ConnectionManager: Service {
     typealias OutputStream = AsyncChannel<Output>
     struct Connection {
         let playerName: String
-        var playerScore: Int
         let inbound: WebSocketInboundStream
         let outbound: OutputStream
     }
 
     actor OutboundConnections {
-        init() {
+        init(logger: Logger) {
+            self.logger = logger
             self.outboundConnections = [:]
         }
 
@@ -86,20 +86,21 @@ struct ConnectionManager: Service {
             guard self.outboundConnections[name] == nil else { return false }
             self.outboundConnections[name] = outbound
             // await self.send("\(name) joined")
-            await self.send(event: Event(type: .join, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            await self.send(event: Event(type: .join, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
             return true
         }
 
         func remove(name: String) async {
             self.outboundConnections[name] = nil
             // await self.send("\(name) left")
-            await self.send(event: Event(type: .leave, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            await self.send(event: Event(type: .leave, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
         }
 
         func updateScore(name: String) async {
             guard var connection = self.outboundConnections[name] else { return }
-            connection.playerScore = connection.playerScore + 1
-            await self.send(event: Event(type: .answer, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            // connection.playerScore = connection.playerScore + 1
+            scores[name] = (scores[name] ?? 0) + 1
+            await self.send(event: Event(type: .answer, data: name, playerName: name, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
         }
 
         func processAnswer(_ event: Event, connection: Connection) async {
@@ -113,21 +114,27 @@ struct ConnectionManager: Service {
                 hadCorrectAnswer = true
                 // self.logger.info("Correct answer", metadata: ["player": .string(playerName)])
             }
-            await self.send(event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            await self.send(event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
             
             if hadCorrectAnswer {
                 // self.logger.info("New question")
                 self.question = Question()
-                await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+                await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
             }
         }
 
         func resendQuestion(connection: Connection) async {
-            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: self.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
+        }
+
+        func getScores() async -> [String: Int] {
+            return self.scores
         }
 
         var outboundConnections: [String: Connection]
+        var scores: [String: Int] = [:]
         var question: Question = Question()
+        let logger: Logger
     }
 
     let connectionStream: AsyncStream<Connection>
@@ -142,7 +149,7 @@ struct ConnectionManager: Service {
     func run() async {
         await withGracefulShutdownHandler {
             await withDiscardingTaskGroup { group in
-                let outboundCounnections = OutboundConnections()
+                let outboundCounnections = OutboundConnections(logger: self.logger)
                 for await connection in self.connectionStream {
                     group.addTask {
                         self.logger.info("add connection", metadata: ["name": .string(connection.playerName)])
@@ -186,19 +193,16 @@ struct ConnectionManager: Service {
             await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
             self.logger.info("Heartbeat")
-            await outboundCounnections.send(event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.outboundConnections.values.map { Player(name: $0.playerName, score: $0.playerScore) }))
+            let scores = await outboundCounnections.getScores()
+            await outboundCounnections.send(event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.outboundConnections.values.map { Player(name: $0.playerName, score: scores[$0.playerName] ?? 0) }))
         }
         
         // await outboundCounnections.send(event: Event(type: <#T##EventTypes#>, data: <#T##String#>))
     }
 
-    
-
-    
-
     func addUser(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream {
         let outputStream = OutputStream()
-        let connection = Connection(playerName: name, playerScore: 0, inbound: inbound, outbound: outputStream)
+        let connection = Connection(playerName: name, inbound: inbound, outbound: outputStream)
         self.connectionContinuation.yield(connection)
         return outputStream
     }
