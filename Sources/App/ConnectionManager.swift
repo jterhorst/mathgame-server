@@ -48,7 +48,7 @@ final class Question: Codable {
 
     init() {
         let lhs = Int.random(in: 1...10)
-        let rhs = Int.random(in: 1...10)
+        let rhs = Int.random(in: 1...4)
         let correctAnswer = lhs * rhs
         self.lhs = lhs
         self.rhs = rhs
