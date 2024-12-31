@@ -139,6 +139,12 @@ struct ConnectionManager: Service {
             return self.outboundConnections.values.filter { $0.playerName != nil }.map { Player(name: $0.playerName!, score: scores[$0.playerName!] ?? 0) }
         }
 
+        func resetScores() async {
+            self.scores.forEach { self.scores[$0.key] = 0 }
+            self.question = Question()
+            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: "", players: getPlayers(), question: self.question))
+        }
+
         var outboundConnections: [String: Connection]
         var scores: [String: Int] = [:]
         var question: Question = Question()
@@ -199,10 +205,7 @@ struct ConnectionManager: Service {
         
         if obj.type == .reset {
             self.logger.info("Reset")
-            outboundCounnections.scores.forEach { outboundCounnections.scores[$0.key] = 0 }
-            outboundCounnections.question = Question()
-            // await outboundCounnections.send(event: Event(type: .reset, data: "reset", playerName: connection.playerName, players: outboundCounnections.getPlayers(), question: outboundCounnections.question))
-            await outboundCounnections.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: getPlayers(), question: self.question))
+            await outboundCounnections.resetScores()
         } else if obj.type == .answer {
             await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
