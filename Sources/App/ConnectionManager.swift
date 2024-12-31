@@ -26,6 +26,7 @@ enum EventTypes: String, Codable {
     case question = "question"
     case answer = "answer"
     case heartbeat = "heartbeat"
+    case reset = "reset"
 }
 
 struct Player: Codable {
@@ -196,7 +197,13 @@ struct ConnectionManager: Service {
         let output = "[\(connection.playerName)]: \(obj.data)"
         self.logger.debug("Output", metadata: ["message": .string(output)])
         
-        if obj.type == .answer {
+        if obj.type == .reset {
+            self.logger.info("Reset")
+            outboundCounnections.scores.forEach { outboundCounnections.scores[$0.key] = 0 }
+            outboundCounnections.question = Question()
+            // await outboundCounnections.send(event: Event(type: .reset, data: "reset", playerName: connection.playerName, players: outboundCounnections.getPlayers(), question: outboundCounnections.question))
+            await outboundCounnections.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: getPlayers(), question: self.question))
+        } else if obj.type == .answer {
             await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
             self.logger.info("Heartbeat")
