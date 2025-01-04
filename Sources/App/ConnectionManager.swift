@@ -1,16 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-// This source file is part of the Hummingbird server framework project
-//
-// Copyright (c) 2021-2021 the Hummingbird authors
-// Licensed under Apache License v2.0
-//
-// See LICENSE.txt for license information
-// See hummingbird/CONTRIBUTORS.txt for the list of Hummingbird authors
-//
-// SPDX-License-Identifier: Apache-2.0
-//
-//===----------------------------------------------------------------------===//
 
 import AsyncAlgorithms
 import Hummingbird
@@ -29,12 +16,16 @@ enum EventTypes: String, Codable {
     case reset = "reset"
 }
 
-struct Player: Codable {
+struct Player: Codable, Equatable {
     let name: String
     var score: Int
 }
 
-struct Event: Codable {
+struct Event: Codable, Equatable {
+    static func == (lhs: Event, rhs: Event) -> Bool {
+        lhs.type == rhs.type && lhs.data == rhs.data
+    }
+    
     let type: EventTypes
     let data: String
     let playerName: String?

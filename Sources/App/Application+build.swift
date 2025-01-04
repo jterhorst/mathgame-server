@@ -11,7 +11,7 @@ protocol AppArguments {
 }
 
 func buildApplication(_ arguments: some AppArguments) async throws -> some ApplicationProtocol {
-    var logger = Logger(label: "WebSocketChat")
+    var logger = Logger(label: "mathgame-server")
     logger.logLevel = .trace
     let connectionManager = ConnectionManager(logger: logger)
 
@@ -25,38 +25,33 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
     wsRouter.add(middleware: LogRequestsMiddleware(.debug))
     wsRouter.ws("game") { request, _ in
         // only allow upgrade if username query parameter exists
-        guard request.uri.queryParameters["username"] != nil || request.uri.queryParameters["device"] != nil else {
+        guard (request.uri.queryParameters["username"] != nil || request.uri.queryParameters["device"] != nil) && true else {
             return .dontUpgrade
         }
         return .upgrade([:])
     } onUpgrade: { inbound, outbound, context in
         // only allow upgrade if username query parameter exists
+        var outputStream: ConnectionManager.OutputStream?
+        
         if let name = context.request.uri.queryParameters["username"] {
-            let outputStream = connectionManager.addUser(name: String(name), inbound: inbound, outbound: outbound)
-            for try await output in outputStream {
-                switch output {
-                case .frame(let frame):
-                    try await outbound.write(frame)
-                case .close(let reason):
-                    try await outbound.close(.unexpectedServerError, reason: reason)
-                }
-            }
+            outputStream = connectionManager.addUser(name: String(name), inbound: inbound, outbound: outbound)
         } else if let device = context.request.uri.queryParameters["device"] {
-            let outputStream = connectionManager.addDevice(name: String(device), inbound: inbound, outbound: outbound)
-            for try await output in outputStream {
-                switch output {
-                case .frame(let frame):
-                    try await outbound.write(frame)
-                case .close(let reason):
-                    try await outbound.close(.unexpectedServerError, reason: reason)
-                }
-            }
-        } else {
+            outputStream = connectionManager.addDevice(name: String(device), inbound: inbound, outbound: outbound)
+        }
+
+        guard let outputStream else {
             try await outbound.close(.unexpectedServerError, reason: "User connected already")
+            return
         }
         
-        
-        
+        for try await output in outputStream {
+            switch output {
+            case .frame(let frame):
+                try await outbound.write(frame)
+            case .close(let reason):
+                try await outbound.close(.unexpectedServerError, reason: reason)
+            }
+        }
     }
 
     var app = Application(

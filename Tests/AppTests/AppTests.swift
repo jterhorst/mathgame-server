@@ -16,80 +16,99 @@ final class AppTests: XCTestCase {
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
             do {
-                _ = try await client.ws("/chat") { inbound, outbound, context in
+                _ = try await client.ws("/game") { inbound, outbound, context in
                     XCTFail("Upgrade failed so shouldn't get here")
                 }
             } catch let error as WebSocketClientError where error == .webSocketUpgradeFailed {}
         }
     }
+    
+    enum CustomError: Error {
+        case unknown
+    }
 
+    private func event(for frame: WebSocketMessage) throws -> Event? {
+        switch frame {
+        case .text(let text):
+            print("text : \(text)")
+            if let data = text.data(using: .utf8) {
+                let event = try JSONDecoder().decode(Event.self, from: data)
+                return event
+            }
+        default:
+            XCTFail()
+        }
+        return nil
+    }
+    
+    func verifyJoin(event: Event, playerName: String) {
+        XCTAssertEqual(event.type, .join)
+        XCTAssertEqual(event.data, playerName)
+    }
+    
+    func verifyQuestion(event: Event) throws {
+        XCTAssertEqual(event.type, .question)
+        let question = try XCTUnwrap(event.question)
+        XCTAssertEqual(question.correctAnswer, (question.lhs * question.rhs))
+    }
+    
+    func verifyPlayers(event: Event, expectedPlayerNames: [String]) throws {
+        guard let players = event.players else {
+            XCTFail()
+            return
+        }
+        print("players: \(players)")
+        for name in expectedPlayerNames {
+            XCTAssertTrue(players.contains(where: { player in
+                player.name == name
+            }))
+        }
+    }
+    
     func testHello() async throws {
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
-            _ = try await client.ws("/chat?username=john") { inbound, outbound, context in
-                let expectedInboundText = [
-                    "john joined",
-                    "[john]: Hello",
-                ]
-                try await outbound.write(.text("Hello"))
+            _ = try await client.ws("/game?username=john") { inbound, outbound, context in
+                
                 var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
-                for text in expectedInboundText {
-                    let frame = try await inboundIterator.next()
-                    XCTAssertEqual(frame, .text(text))
-                }
+                let joinEvent = try await self.event(for: inboundIterator.next()!)!
+                self.verifyJoin(event: joinEvent, playerName: "john")
+                let questionEvent = try await self.event(for: inboundIterator.next()!)!
+                try self.verifyQuestion(event: questionEvent)
             }
         }
     }
 
     func testTwoClients() async throws {
-        enum ChatAction {
-            case send(String)
-            case receive(String)
-        }
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
             await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    _ = try await client.ws("/chat?username=john") { inbound, outbound, context in
-                        let actions: [ChatAction] = [
-                            .receive("john joined"),
-                            .receive("jane joined"),
-                            .send("Hello Jane"),
-                            .receive("[john]: Hello Jane"),
-                            .receive("[jane]: Hello John"),
-                        ]
+                    _ = try await client.ws("/game?username=john") { inbound, outbound, context in
+                        
                         var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
-                        for action in actions {
-                            switch action {
-                            case .send(let text):
-                                try await outbound.write(.text(text))
-                            case .receive(let text):
-                                let frame = try await inboundIterator.next()
-                                XCTAssertEqual(frame, .text(text))
-                            }
-                        }
+                        let joinEvent = try await self.event(for: inboundIterator.next()!)!
+                        self.verifyJoin(event: joinEvent, playerName: "john")
+                        try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john"])
+                        let questionEvent = try await self.event(for: inboundIterator.next()!)!
+                        try self.verifyQuestion(event: questionEvent)
+                        
+                        sleep(2) // Wait! Don't let John disconnect yet! Jane needs to see both of them on the player list.
                     }
                 }
                 group.addTask {
                     // add stall to ensure john joins first
                     try await Task.sleep(for: .milliseconds(100))
-                    _ = try await client.ws("/chat?username=jane") { inbound, outbound, context in
-                        let actions: [ChatAction] = [
-                            .receive("jane joined"),
-                            .receive("[john]: Hello Jane"),
-                            .send("Hello John"),
-                            .receive("[jane]: Hello John"),
-                        ]
+                    _ = try await client.ws("/game?username=jane") { inbound, outbound, context in
+                        
                         var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
-                        for action in actions {
-                            switch action {
-                            case .send(let text):
-                                try await outbound.write(.text(text))
-                            case .receive(let text):
-                                let frame = try await inboundIterator.next()
-                                XCTAssertEqual(frame, .text(text))
-                            }
-                        }
+
+                        let joinEvent = try await self.event(for: inboundIterator.next()!)!
+                        self.verifyJoin(event: joinEvent, playerName: "jane")
+                        try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john", "jane"])
+                        let questionEvent = try await self.event(for: inboundIterator.next()!)!
+                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyPlayers(event: questionEvent, expectedPlayerNames: ["john", "jane"])
                     }
                 }
             }
@@ -101,12 +120,12 @@ final class AppTests: XCTestCase {
         try await app.test(.live) { client in
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/chat?username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?username=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/chat?username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?username=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
