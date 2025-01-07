@@ -58,6 +58,7 @@ struct ConnectionManager: Service {
     struct Connection {
         let playerName: String?
         let deviceName: String?
+        let roomCode: String
         let inbound: WebSocketInboundStream
         let outbound: OutputStream
     }
@@ -65,37 +66,47 @@ struct ConnectionManager: Service {
     actor OutboundConnections {
         init(logger: Logger) {
             self.logger = logger
-            self.outboundConnections = [:]
+            self.gameConnections = [:]
         }
 
-        func send(event: Event) async {
+        func send(game: String, event: Event) async {
             let encoder = JSONEncoder()
             guard let data = try? encoder.encode(event), let json = String(data: data, encoding: .utf8) else { return }
-            for connection in self.outboundConnections.values {
+            guard let connections = self.gameConnections[game] else {
+                return
+            }
+            for connection in connections.values {
                 self.logger.info("Send", metadata: ["user": .string(connection.playerName ?? connection.deviceName ?? "unknown"), "message": .string(json)])
                 await connection.outbound.send(.frame(.text(json)))
             }
         }
 
-        func add(name: String, outbound: Connection) async -> Bool {
-            guard self.outboundConnections[name] == nil else { return false }
-            self.outboundConnections[name] = outbound
+        func add(game: String, name: String, outbound: Connection) async -> Bool {
+            if self.gameConnections[game] == nil {
+                logger.info("Game failed with code \(game)")
+                self.gameConnections[game] = [:]
+            }
+            guard self.gameConnections[game]?[name] == nil else {
+                logger.info("Name \(name) already exists on this game \(game).")
+                return false
+            }
+            self.gameConnections[game]?[name] = outbound
+            logger.info("Added \(name) to game \(game). Players now include: \(String(describing: self.gameConnections[game]))")
             // await self.send("\(name) joined")
-            await self.send(event: Event(type: .join, data: name, playerName: name, players: getPlayers(), question: self.question))
+            await self.send(game: game, event: Event(type: .join, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
             return true
         }
 
-        func remove(name: String) async {
-            self.outboundConnections[name] = nil
+        func remove(game: String, name: String) async {
+            self.gameConnections[game]?[name] = nil
             // await self.send("\(name) left")
-            await self.send(event: Event(type: .leave, data: name, playerName: name, players: getPlayers(), question: self.question))
+            await self.send(game: game, event: Event(type: .leave, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
         }
 
-        func updateScore(name: String) async {
-            guard var connection = self.outboundConnections[name] else { return }
-            // connection.playerScore = connection.playerScore + 1
-            scores[name] = (scores[name] ?? 0) + 1
-            await self.send(event: Event(type: .answer, data: name, playerName: name, players: getPlayers(), question: self.question))
+        func updateScore(game: String, name: String) async {
+            guard (self.gameConnections[game]?[name]) != nil else { return }
+            scores[game]?[name] = (scores[game]?[name] ?? 0) + 1
+            await self.send(game: game, event: Event(type: .answer, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
         }
 
         func processAnswer(_ event: Event, connection: Connection) async {
@@ -103,42 +114,63 @@ struct ConnectionManager: Service {
             guard let answer = Int(event.data) else { return }
             if let playerName = connection.playerName {
                 var hadCorrectAnswer = false
-                if answer == self.question.correctAnswer {
-                    await self.updateScore(name: playerName)
+                if answer == self.questions[connection.roomCode]?.correctAnswer {
+                    await self.updateScore(game: connection.roomCode, name: playerName)
                     hadCorrectAnswer = true
                     // self.logger.info("Correct answer", metadata: ["player": .string(playerName)])
                 }
-                await self.send(event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: getPlayers(), question: self.question))
+                await self.send(game: connection.roomCode, event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: getPlayers(game: connection.roomCode), question: self.questions[connection.roomCode]))
                 
                 if hadCorrectAnswer {
                     // self.logger.info("New question")
-                    self.question = Question()
-                    await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: getPlayers(), question: self.question))
+                    self.questions[connection.roomCode] = Question()
+                    guard let question = self.questions[connection.roomCode] else {
+                        return
+                    }
+                    await self.send(game: connection.roomCode, event: Event(type: .question, data: "\(question.lhs) * \(question.rhs)", playerName: connection.playerName, players: getPlayers(game: connection.roomCode), question: question))
                 }
             }
         }
 
         func resendQuestion(connection: Connection) async {
-            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: connection.playerName, players: getPlayers(), question: self.question))
+            let roomCode = connection.roomCode
+            if self.questions[roomCode] == nil {
+                logger.info("Creating question with code \(roomCode)")
+                self.questions[roomCode] = Question()
+            }
+            guard let question = self.questions[roomCode] else {
+                logger.info("Failed to return question with code \(roomCode)")
+                return }
+            await self.send(game: roomCode, event: Event(type: .question, data: "\(question.lhs) * \(question.rhs)", playerName: connection.playerName, players: getPlayers(game: roomCode), question: question))
         }
 
-        func getScores() async -> [String: Int] {
-            return self.scores
+        func getScores(game: String) async -> [String: Int] {
+            return self.scores[game] ?? [:]
         }
 
-        func getPlayers() async -> [Player] {
-            return self.outboundConnections.values.filter { $0.playerName != nil }.map { Player(name: $0.playerName!, score: scores[$0.playerName!] ?? 0) }
+        func getPlayers(game: String) async -> [Player] {
+            guard let connections = self.gameConnections[game] else {
+                return []
+            }
+            let gameScores = self.scores[game] ?? [:]
+            return connections.values.filter {
+                $0.playerName != nil }.map { Player(name: $0.playerName!, score: gameScores[$0.playerName!] ?? 0 )}
         }
 
-        func resetScores() async {
-            self.scores.forEach { self.scores[$0.key] = 0 }
-            self.question = Question()
-            await self.send(event: Event(type: .question, data: "\(self.question.lhs) * \(self.question.rhs)", playerName: "", players: getPlayers(), question: self.question))
+        func resetScores(game: String) async {
+            self.scores[game]?.forEach { self.scores[game]?[$0.key] = 0 }
+            self.questions[game] = Question()
+            guard let question = self.questions[game] else {
+                return
+            }
+            await self.send(game: game, event: Event(type: .question, data: "\(question.lhs) * \(question.rhs)", playerName: "", players: getPlayers(game: game), question: question))
         }
 
-        var outboundConnections: [String: Connection]
-        var scores: [String: Int] = [:]
-        var question: Question = Question()
+        var gameConnections: [String: [String: Connection]]
+//        var outboundConnections: [String: Connection]
+        var scores: [String: [String: Int]] = [:]
+        var rooms: [String: Date] = [:]
+        var questions: [String: Question] = [:]
         let logger: Logger
     }
 
@@ -159,7 +191,7 @@ struct ConnectionManager: Service {
                     group.addTask {
                         let connectionName = connection.playerName ?? connection.deviceName ?? "unknown"
                         self.logger.info("add connection", metadata: ["name": .string(connectionName)])
-                        guard await outboundCounnections.add(name: connectionName, outbound: connection) else {
+                        guard await outboundCounnections.add(game: connection.roomCode, name: connectionName, outbound: connection) else {
                             self.logger.info("user already exists", metadata: ["name": .string(connectionName)])
                             await connection.outbound.send(.close("User connected already"))
                             connection.outbound.finish()
@@ -176,7 +208,7 @@ struct ConnectionManager: Service {
                         } catch {}
 
                         self.logger.info("remove connection", metadata: ["name": .string(connectionName)])
-                        await outboundCounnections.remove(name: connectionName)
+                        await outboundCounnections.remove(game: connection.roomCode, name: connectionName)
                         connection.outbound.finish()
                     }
                 }
@@ -191,32 +223,39 @@ struct ConnectionManager: Service {
         self.logger.debug("Input", metadata: ["message": .string(input)])
         let obj = try? JSONDecoder().decode(Event.self, from: Data(input.utf8))
         guard let obj = obj else { return }
-        let output = "[\(connection.playerName)]: \(obj.data)"
+        let output = "[\(connection.playerName ?? connection.deviceName ?? "unknown") (\(connection.roomCode))]: \(obj.data)"
         self.logger.debug("Output", metadata: ["message": .string(output)])
         
         if obj.type == .reset {
             self.logger.info("Reset")
-            await outboundCounnections.resetScores()
+            await outboundCounnections.resetScores(game: connection.roomCode)
         } else if obj.type == .answer {
             await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
             self.logger.info("Heartbeat")
-            let scores = await outboundCounnections.getScores()
-            await outboundCounnections.send(event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.getPlayers(), question: outboundCounnections.question))
+            await outboundCounnections.send(game: connection.roomCode, event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.getPlayers(game: connection.roomCode), question: outboundCounnections.questions[connection.roomCode]))
         }
     }
 
-    func addUser(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream {
+    func addUser(name: String, roomCode: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream? {
+        logger.info("Adding user \(name) to room \(roomCode)")
         let outputStream = OutputStream()
-        let connection = Connection(playerName: name, deviceName: nil, inbound: inbound, outbound: outputStream)
+        let connection = Connection(playerName: name, deviceName: nil, roomCode: roomCode, inbound: inbound, outbound: outputStream)
         self.connectionContinuation.yield(connection)
         return outputStream
     }
 
-    func addDevice(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream {
+    func addDevice(name: String, roomCode: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter) -> OutputStream? {
+        logger.info("Adding device \(name) to room \(roomCode)")
         let outputStream = OutputStream()
-        let connection = Connection(playerName: nil, deviceName: name, inbound: inbound, outbound: outputStream)
+        let connection = Connection(playerName: nil, deviceName: name, roomCode: roomCode, inbound: inbound, outbound: outputStream)
         self.connectionContinuation.yield(connection)
         return outputStream
+    }
+    
+    func generateCode(strLen: Int = 4) -> String {
+        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        let resStr = String((0..<strLen).map{_ in chars.randomElement()!})
+        return resStr
     }
 }

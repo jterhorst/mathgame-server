@@ -68,7 +68,16 @@ final class AppTests: XCTestCase {
     func testHello() async throws {
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
-            _ = try await client.ws("/game?username=john") { inbound, outbound, context in
+            let roomCode = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode)
+            print("resulting code: \(roomCode)")
+            _ = try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
                 
                 var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
                 let joinEvent = try await self.event(for: inboundIterator.next()!)!
@@ -82,9 +91,18 @@ final class AppTests: XCTestCase {
     func testTwoClients() async throws {
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
+            let roomCode = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode)
+            print("resulting code: \(roomCode)")
             await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    _ = try await client.ws("/game?username=john") { inbound, outbound, context in
+                    _ = try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
                         
                         var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
                         let joinEvent = try await self.event(for: inboundIterator.next()!)!
@@ -99,7 +117,7 @@ final class AppTests: XCTestCase {
                 group.addTask {
                     // add stall to ensure john joins first
                     try await Task.sleep(for: .milliseconds(100))
-                    _ = try await client.ws("/game?username=jane") { inbound, outbound, context in
+                    _ = try await client.ws("/game?code=\(roomCode)&username=jane") { inbound, outbound, context in
                         
                         var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
 
@@ -118,20 +136,137 @@ final class AppTests: XCTestCase {
     func testNameClash() async throws {
         let app = try await buildApplication(TestArguments())
         try await app.test(.live) { client in
+            let roomCode = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode)
+            print("resulting code: \(roomCode)")
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/game?username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                        try await Task.sleep(for: .milliseconds(200))
+                    }?.closeCode
+                }
+                group.addTask {
+                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                        try await Task.sleep(for: .milliseconds(200))
+                    }?.closeCode
+                }
+                let rt1 = try await group.next()
+                print("first result: \(String(describing: rt1))")
+                let rt2 = try await group.next()
+                print("second result: \(String(describing: rt2))")
+                XCTAssert(rt1 == .unexpectedServerError || rt2 == .unexpectedServerError)
+            }
+        }
+    }
+    
+    func testGenerateCode() async throws {
+        let app = try await buildApplication(TestArguments())
+        try await app.test(.live) { client in
+            _ = try await client.execute(uri: "/new_game", method: .get) { response in
+//                print("response: \(response)")
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+            }
+        }
+    }
+    
+    func testTwoGamesClients() async throws {
+        let app = try await buildApplication(TestArguments())
+        try await app.test(.live) { client in
+            let roomCode1 = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode1)
+            let roomCode2 = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode2)
+            print("resulting code: \(roomCode1)")
+            print("resulting code: \(roomCode2)")
+            await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    _ = try await client.ws("/game?code=\(roomCode1)&username=john") { inbound, outbound, context in
+                        
+                        var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
+                        let joinEvent = try await self.event(for: inboundIterator.next()!)!
+                        self.verifyJoin(event: joinEvent, playerName: "john")
+                        try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john"])
+                        let questionEvent = try await self.event(for: inboundIterator.next()!)!
+                        try self.verifyQuestion(event: questionEvent)
+                        
+                        sleep(2) // Wait! Don't let John disconnect yet! Jane needs to see both of them on the player list.
+                    }
+                }
+                group.addTask {
+                    // add stall to ensure john joins first
+                    try await Task.sleep(for: .milliseconds(100))
+                    _ = try await client.ws("/game?code=\(roomCode2)&username=jane") { inbound, outbound, context in
+                        
+                        var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
+
+                        let joinEvent = try await self.event(for: inboundIterator.next()!)!
+                        self.verifyJoin(event: joinEvent, playerName: "jane")
+                        try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["jane"])
+                        let questionEvent = try await self.event(for: inboundIterator.next()!)!
+                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyPlayers(event: questionEvent, expectedPlayerNames: ["jane"])
+                    }
+                }
+            }
+        }
+    }
+
+    func testNamesDontClashOnDifferentGames() async throws {
+        let app = try await buildApplication(TestArguments())
+        try await app.test(.live) { client in
+            let roomCode1 = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode1)
+            print("resulting code: \(roomCode1)")
+            let roomCode2 = try await client.execute(uri: "/new_game", method: .get) { response in
+                let json = try JSONDecoder().decode([String: String].self, from: response.body)
+                XCTAssertTrue(json["code"] != nil)
+                XCTAssertTrue(json["code"]?.count == 4)
+                print("code: \(String(describing: json["code"]))")
+                return json["code"]
+            }!
+            XCTAssertNotNil(roomCode2)
+            print("resulting code: \(roomCode2)")
+            try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
+                group.addTask {
+                    return try await client.ws("/game?code=\(roomCode1)&username=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/game?username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode2)&username=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
                 let rt1 = try await group.next()
                 let rt2 = try await group.next()
-                XCTAssert(rt1 == .unexpectedServerError || rt2 == .unexpectedServerError)
+                XCTAssertFalse(rt1 == .unexpectedServerError || rt2 == .unexpectedServerError)
             }
         }
     }
