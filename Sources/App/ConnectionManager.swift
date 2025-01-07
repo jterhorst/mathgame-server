@@ -91,6 +91,10 @@ struct ConnectionManager: Service {
                 return false
             }
             self.gameConnections[game]?[name] = outbound
+            if self.scores[game] == nil {
+                self.scores[game] = [:]
+            }
+            self.scores[game]?[name] = 0
             logger.info("Added \(name) to game \(game). Players now include: \(String(describing: self.gameConnections[game]))")
             // await self.send("\(name) joined")
             await self.send(game: game, event: Event(type: .join, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
@@ -99,14 +103,20 @@ struct ConnectionManager: Service {
 
         func remove(game: String, name: String) async {
             self.gameConnections[game]?[name] = nil
+            self.scores[game]?[name] = nil
             // await self.send("\(name) left")
             await self.send(game: game, event: Event(type: .leave, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
         }
 
         func updateScore(game: String, name: String) async {
-            guard (self.gameConnections[game]?[name]) != nil else { return }
-            scores[game]?[name] = (scores[game]?[name] ?? 0) + 1
+//            guard (self.gameConnections[game]?[name]) != nil else { return }
+//            if scores[game] == nil {
+//                scores[game] = [:]
+//            }
+            var updatedScores = scores[game] ?? [:]
+            updatedScores[name] = (updatedScores[name] ?? 0) + 1
             await self.send(game: game, event: Event(type: .answer, data: name, playerName: name, players: getPlayers(game: game), question: self.questions[game]))
+            self.scores[game] = updatedScores
         }
 
         func processAnswer(_ event: Event, connection: Connection) async {
