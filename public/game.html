@@ -10,6 +10,7 @@
   var nameEntry;
   var roomEntry;
   var output;
+  var question;
   var intervalId;
 
   function init()
@@ -18,6 +19,7 @@
       nameEntry = document.getElementById("name_entry");
       roomEntry = document.getElementById("room_entry");
       output = document.getElementById("output_box");
+      question = document.getElementById("math_problem");
 
       input.value = ""
       nameEntry.value = ""
@@ -52,8 +54,11 @@
     let enterName = document.getElementById("enter_name")
     enterName.style.display = 'block'
     nameEntry.style.display = 'block'
+    nameEntry.value = ''
     roomEntry.style.display = 'block'
+    roomEntry.value = ''
     input.style.display = 'none'
+    question.style.display = 'none'
     clearInterval(intervalId);
   }
 
@@ -101,6 +106,7 @@
           nameEntry.style.display = 'none'
           roomEntry.style.display = 'none'
           input.style.display = 'block'
+          question.style.display = 'block'
           // websocket connect
           let uri = wsUri + "?code=" + roomEntry.value + "&username=" + nameEntry.value
           openWebSocket(uri)
