@@ -7,15 +7,21 @@
   var wsUri = "/game";
   var connected = false;
   var input;
+  var nameEntry;
+  var roomEntry;
   var output;
   var intervalId;
 
   function init()
   {
       input = document.getElementById("input");
+      nameEntry = document.getElementById("name_entry");
+      roomEntry = document.getElementById("room_entry");
       output = document.getElementById("output_box");
 
       input.value = ""
+      nameEntry.value = ""
+      roomEntry.value = ""
   }
 
   function openWebSocket(uri)
@@ -45,6 +51,9 @@
     // show enter name
     let enterName = document.getElementById("enter_name")
     enterName.style.display = 'block'
+    nameEntry.style.display = 'block'
+    roomEntry.style.display = 'block'
+    input.style.display = 'none'
     clearInterval(intervalId);
   }
 
@@ -80,14 +89,20 @@
 
   function inputEnter() {
       if (connected == false) {
-          if (input.value == "") {
+          if (nameEntry.value == "") {
+              return
+          }
+          if (roomEntry.value == "") {
               return
           }
           // hide enter name
           let enterName = document.getElementById("enter_name")
           enterName.style.display = 'none'
+          nameEntry.style.display = 'none'
+          roomEntry.style.display = 'none'
+          input.style.display = 'block'
           // websocket connect
-          let uri = wsUri + "?username=" + input.value
+          let uri = wsUri + "?code=" + roomEntry.value + "&username=" + nameEntry.value
           openWebSocket(uri)
           connected = true
       } else {
@@ -107,10 +122,12 @@
   
   <div id="output_box" style="float: right; width: 59%; height: 98vh; overflow-y: scroll;"></div>
   <div id="input_box" style="float: left; width: 30%;">
-    <h2>Mathgame</h2>
+    <h2>Math game</h2>
     <p id="enter_name">Please enter your name</p>
+    <input id="name_entry" onchange = "inputEnter()" type="text" name="name"/>
+    <input id="room_entry" onchange = "inputEnter()" type="text" name="name"/>
     <p id="math_problem" style="display: none;">Question</p>
-    <input id="input" onchange = "inputEnter()" type="text" name="name"/>
+    <input id="input" style="display: none;" onchange = "inputEnter()" type="text" name="name"/>
   </div>
   <div style="clear: both;">&nbsp;</div>
 </body>
