@@ -7,52 +7,6 @@ import NIOConcurrencyHelpers
 import ServiceLifecycle
 import Foundation
 
-enum EventTypes: String, Codable {
-    case join = "join"
-    case leave = "leave"
-    case question = "question"
-    case answer = "answer"
-    case heartbeat = "heartbeat"
-    case reset = "reset"
-}
-
-struct Player: Codable, Equatable {
-    let name: String
-    var score: Int
-}
-
-struct Event: Codable, Equatable {
-    static func == (lhs: Event, rhs: Event) -> Bool {
-        lhs.type == rhs.type && lhs.data == rhs.data
-    }
-    
-    let type: EventTypes
-    let data: String
-    let playerName: String?
-    let players: [Player]?
-    let question: Question?
-}
-
-final class Question: Codable, Equatable, ObservableObject {
-    static func == (lhs: Question, rhs: Question) -> Bool {
-        lhs.lhs == rhs.lhs && lhs.rhs == rhs.rhs
-    }
-    
-    let lhs: Int
-    let rhs: Int
-    let correctAnswer: Int
-
-    init() {
-        let lhs = Int.random(in: 1...11)
-        let rhs = Int.random(in: 1...4)
-        let flipped = Int.random(in: 0...100) % 2 == 0
-        let correctAnswer = lhs * rhs
-        self.lhs = flipped ? lhs : rhs
-        self.rhs = flipped ? rhs : lhs
-        self.correctAnswer = correctAnswer
-    }
-}
-
 struct ConnectionManager: Service {
     enum Output {
         case close(String?)
