@@ -7,7 +7,7 @@
 
 import Foundation
 
-final class Question: Codable, Equatable, ObservableObject {
+final class Question: Codable, Equatable {
     static func == (lhs: Question, rhs: Question) -> Bool {
         lhs.lhs == rhs.lhs && lhs.rhs == rhs.rhs
     }
