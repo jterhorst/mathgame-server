@@ -14,4 +14,5 @@ enum EventTypes: String, Codable {
     case answer = "answer"
     case heartbeat = "heartbeat"
     case reset = "reset"
+    case timerTick = "tick"
 }

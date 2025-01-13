@@ -7,7 +7,13 @@
 
 import Foundation
 
-struct Player: Codable, Equatable {
+enum PlayerType: Codable {
+    case parent
+    case student
+}
+
+struct Player: Codable {
     let name: String
     var score: Int
+    var type: PlayerType = .student
 }
