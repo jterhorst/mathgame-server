@@ -9,7 +9,7 @@ struct Config {
     private static let devMode = true
     
     static var host: String {
-        devMode ? "ws://127.0.0.1:8080" : "wss://mathgame-server-llg5a.ondigitalocean.app"
+        devMode ? "ws://127.0.0.1:8080" : "wss://mathbattle.tv"
     }
     
     // how long do we go until the game runs out?
