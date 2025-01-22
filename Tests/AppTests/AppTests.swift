@@ -83,7 +83,7 @@ final class AppTests: XCTestCase {
             }!
             XCTAssertNotNil(roomCode)
             print("resulting code: \(roomCode)")
-            _ = try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+            _ = try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                 
                 var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
                 let joinEvent = try await self.event(for: inboundIterator.next()!)!
@@ -153,12 +153,12 @@ final class AppTests: XCTestCase {
             print("resulting code: \(roomCode)")
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(200))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(200))
                     }?.closeCode
                 }
@@ -261,12 +261,12 @@ final class AppTests: XCTestCase {
             print("resulting code: \(roomCode2)")
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode1)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode1)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode2)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode2)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }

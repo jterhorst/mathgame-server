@@ -13,7 +13,7 @@ enum BattleMode: Codable {
 }
 
 struct Battle: Codable, Equatable {
-    let questions: [Player: Question]
+    let questions: [String: Question]
     let mode: BattleMode
     
     static func dataString(_ battle: Battle) -> String {
@@ -25,10 +25,10 @@ struct Battle: Codable, Equatable {
     }
     
     static func new(players: [Player], mode: BattleMode) -> Battle {
-        var playersDict: [Player: Question] = [:]
+        var playersDict: [String: Question] = [:]
         let sharedQuestion = Question()
         for player in players {
-            playersDict[player] = (mode == .shared) ? sharedQuestion : Question()
+            playersDict[player.name] = (mode == .shared) ? sharedQuestion : Question()
         }
         return Battle(questions: playersDict, mode: mode)
     }

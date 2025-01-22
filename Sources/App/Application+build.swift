@@ -65,6 +65,7 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
         // only allow upgrade if username query parameter exists
         let params = gameParameters(request: request)
         guard (params.user != nil || params.device != nil) && params.code != nil else {
+            logger.info("Missing code or user or device")
             return .dontUpgrade
         }
         return .upgrade([:])
@@ -76,6 +77,7 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
         
         guard let roomCode = params.code else {
             try await outbound.close(.unexpectedServerError, reason: "Invalid room code")
+            logger.info("Missing code")
             return
         }
         
@@ -86,6 +88,7 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
         }
         guard let outputStream else {
             try await outbound.close(.unexpectedServerError, reason: "User connected already")
+            logger.info("This matches an existing user")
             return
         }
         

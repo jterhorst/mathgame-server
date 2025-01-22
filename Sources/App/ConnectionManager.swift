@@ -79,7 +79,7 @@ struct ConnectionManager: Service {
             guard let answer = Int(event.data) else { return }
             if let playerName = connection.playerName, let player = await getPlayers(game: connection.roomCode).first(where: { $0.name == playerName }) {
                 var hadCorrectAnswer = false
-                if answer == self.currentBattle[connection.roomCode]?.questions[player]?.correctAnswer {
+                if answer == self.currentBattle[connection.roomCode]?.questions[player.name]?.correctAnswer {
                     await self.updateScore(game: connection.roomCode, name: playerName)
                     hadCorrectAnswer = true
                     // self.logger.info("Correct answer", metadata: ["player": .string(playerName)])

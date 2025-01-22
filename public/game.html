@@ -108,7 +108,7 @@
           input.style.display = 'block'
           question.style.display = 'block'
           // websocket connect
-          let uri = wsUri + "?code=" + roomEntry.value + "&username=" + nameEntry.value
+          let uri = wsUri + "?code=" + roomEntry.value + "&name=" + nameEntry.value
           openWebSocket(uri)
           connected = true
       } else {
