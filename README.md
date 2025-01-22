@@ -1,11 +1,36 @@
-# Hummingbird Websocket chat 
 
-Application demonstrating how to use [web sockets](https://github.com/hummingbird-project/hummingbird-websocket) with Hummingbird 2.
+## Running the example
 
-Run the application and then using a web browser go to http://localhost:8080/chat.html
+Run the app and open http://localhost:8080 in the browser
 
-Enter a name and start typing messages. Open another web browser page to create a second connection and chat between the two pages.
+```sh
+swift run App
+```
 
-The app includes a simple connection manager for managing all the websocket connections.
+## Dev mode with auto-reload on save
 
-Because this sample serves a web page, you will need to make sure you have set the working directory to the root folder of the example before running. 
+The `swift-dev` script auto-reloads open browser tabs on source file changes.
+
+It is using [watchexec](https://github.com/watchexec/watchexec) and [browsersync](https://browsersync.io/).
+
+### Install required tools
+
+Use homebrew and npm to install the following (tested on macOS):
+
+```sh
+npm install -g browser-sync
+brew install watchexec
+```
+
+### Run app in watch-mode
+
+This will watch all swift files in the demo package, build on-demand, and re-sync the browser page
+
+```sh
+./swift-dev
+```
+
+### Game preview
+
+http://localhost:8080/game
+

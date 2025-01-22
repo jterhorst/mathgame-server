@@ -13,6 +13,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", branch: "main"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.4.0"),
+        .package(url: "https://github.com/hummingbird-community/hummingbird-elementary.git", from: "0.3.0"),
     ],
     targets: [
         .executableTarget(
@@ -22,6 +23,7 @@ let package = Package(
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
                 .product(name: "HummingbirdWSCompression", package: "hummingbird-websocket"),
+                .product(name: "HummingbirdElementary", package: "hummingbird-elementary"),
             ],
             swiftSettings: [
                 // Enable better optimizations when building in Release configuration. Despite the use of
@@ -36,6 +38,7 @@ let package = Package(
                 .byName(name: "App"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
                 .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
+                .product(name: "HummingbirdElementary", package: "hummingbird-elementary"),
             ]
         ),
     ]

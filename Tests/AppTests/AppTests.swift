@@ -46,10 +46,16 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(event.data, playerName)
     }
     
-    func verifyQuestion(event: Event) throws {
-        XCTAssertEqual(event.type, .question)
-        let question = try XCTUnwrap(event.question)
+    func verifyQuestion(question: Question) {
         XCTAssertEqual(question.correctAnswer, (question.lhs * question.rhs))
+    }
+    
+    func verifyQuestions(event: Event) throws {
+        XCTAssertEqual(event.type, .battle)
+        let questions: [Question] = try XCTUnwrap(event.activeBattle).questions.values.shuffled()
+        for question in questions {
+            verifyQuestion(question: question)
+        }
     }
     
     func verifyPlayers(event: Event, expectedPlayerNames: [String]) throws {
@@ -77,13 +83,13 @@ final class AppTests: XCTestCase {
             }!
             XCTAssertNotNil(roomCode)
             print("resulting code: \(roomCode)")
-            _ = try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+            _ = try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                 
                 var inboundIterator = inbound.messages(maxSize: 1 << 16).makeAsyncIterator()
                 let joinEvent = try await self.event(for: inboundIterator.next()!)!
                 self.verifyJoin(event: joinEvent, playerName: "john")
                 let questionEvent = try await self.event(for: inboundIterator.next()!)!
-                try self.verifyQuestion(event: questionEvent)
+                try self.verifyQuestions(event: questionEvent)
             }
         }
     }
@@ -109,7 +115,7 @@ final class AppTests: XCTestCase {
                         self.verifyJoin(event: joinEvent, playerName: "john")
                         try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john"])
                         let questionEvent = try await self.event(for: inboundIterator.next()!)!
-                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyQuestions(event: questionEvent)
                         
                         sleep(2) // Wait! Don't let John disconnect yet! Jane needs to see both of them on the player list.
                     }
@@ -125,7 +131,7 @@ final class AppTests: XCTestCase {
                         self.verifyJoin(event: joinEvent, playerName: "jane")
                         try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john", "jane"])
                         let questionEvent = try await self.event(for: inboundIterator.next()!)!
-                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyQuestions(event: questionEvent)
                         try self.verifyPlayers(event: questionEvent, expectedPlayerNames: ["john", "jane"])
                     }
                 }
@@ -147,12 +153,12 @@ final class AppTests: XCTestCase {
             print("resulting code: \(roomCode)")
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(200))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(200))
                     }?.closeCode
                 }
@@ -208,7 +214,7 @@ final class AppTests: XCTestCase {
                         self.verifyJoin(event: joinEvent, playerName: "john")
                         try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["john"])
                         let questionEvent = try await self.event(for: inboundIterator.next()!)!
-                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyQuestions(event: questionEvent)
                         
                         sleep(2) // Wait! Don't let John disconnect yet! Jane needs to see both of them on the player list.
                     }
@@ -224,7 +230,7 @@ final class AppTests: XCTestCase {
                         self.verifyJoin(event: joinEvent, playerName: "jane")
                         try self.verifyPlayers(event: joinEvent, expectedPlayerNames: ["jane"])
                         let questionEvent = try await self.event(for: inboundIterator.next()!)!
-                        try self.verifyQuestion(event: questionEvent)
+                        try self.verifyQuestions(event: questionEvent)
                         try self.verifyPlayers(event: questionEvent, expectedPlayerNames: ["jane"])
                     }
                 }
@@ -255,12 +261,12 @@ final class AppTests: XCTestCase {
             print("resulting code: \(roomCode2)")
             try await withThrowingTaskGroup(of: NIOWebSocket.WebSocketErrorCode?.self) { group in
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode1)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode1)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }
                 group.addTask {
-                    return try await client.ws("/game?code=\(roomCode2)&username=john") { inbound, outbound, context in
+                    return try await client.ws("/game?code=\(roomCode2)&name=john") { inbound, outbound, context in
                         try await Task.sleep(for: .milliseconds(100))
                     }?.closeCode
                 }

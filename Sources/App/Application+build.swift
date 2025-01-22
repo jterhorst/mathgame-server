@@ -1,5 +1,6 @@
 import Foundation
 import Hummingbird
+import HummingbirdElementary
 import HummingbirdWebSocket
 import HummingbirdWSCompression
 import Logging
@@ -20,8 +21,41 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
     router.add(middleware: LogRequestsMiddleware(.debug))
     router.add(middleware: FileMiddleware(logger: logger))
     
+    router.get("/") { _, _ in
+        HTMLResponse {
+            MainLayout(title: "Hello there!") {
+                WelcomePage()
+            }
+        }
+    }
+    
+    router.get("/play") { _, _ in
+        HTMLResponse {
+            MainLayout(title: "Join game") {
+                GameJoinPage()
+            }
+        }
+    }
+    
+    router.get("/create") { _, _ in
+        HTMLResponse {
+            MainLayout(title: "New game") {
+                GameJoinPage(roomCode: connectionManager.generateCode())
+            }
+        }
+    }
+    
+    router.get("/game") { request, _ in
+        HTMLResponse {
+            GamePlayLayout(title: "Playing") {
+                let results = gameParameters(request: request)
+                GamePlayPage(name: results.user, roomCode: results.code)
+            }
+        }
+    }
+    
     router.get("/new_game") { request, context in
-        return "{\"code\":\"\(connectionManager.generateCode())\"}"
+        return "{\"\(GameParameterConstants.code)\":\"\(connectionManager.generateCode())\"}"
     }
     
     // Separate router for websocket upgrade
@@ -29,7 +63,9 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
     wsRouter.add(middleware: LogRequestsMiddleware(.debug))
     wsRouter.ws("game") { request, _ in
         // only allow upgrade if username query parameter exists
-        guard (request.uri.queryParameters["username"] != nil || request.uri.queryParameters["device"] != nil) && request.uri.queryParameters["code"] != nil else {
+        let params = gameParameters(request: request)
+        guard (params.user != nil || params.device != nil) && params.code != nil else {
+            logger.info("Missing code or user or device")
             return .dontUpgrade
         }
         return .upgrade([:])
@@ -37,18 +73,22 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
         // only allow upgrade if username query parameter exists
         var outputStream: ConnectionManager.OutputStream?
         
-        guard let roomCode = context.request.uri.queryParameters["code"] else {
+        let params = gameParameters(request: context.request)
+        
+        guard let roomCode = params.code else {
             try await outbound.close(.unexpectedServerError, reason: "Invalid room code")
+            logger.info("Missing code")
             return
         }
         
-        if let name = context.request.uri.queryParameters["username"] {
-            outputStream = connectionManager.addUser(name: String(name), roomCode: String(roomCode), inbound: inbound, outbound: outbound)
-        } else if let device = context.request.uri.queryParameters["device"] {
-            outputStream = connectionManager.addDevice(name: String(device), roomCode: String(roomCode), inbound: inbound, outbound: outbound)
+        if let name = params.user {
+            outputStream = connectionManager.addUser(name: name, roomCode: roomCode, inbound: inbound, outbound: outbound)
+        } else if let device = params.device {
+            outputStream = connectionManager.addDevice(name: device, roomCode: roomCode, inbound: inbound, outbound: outbound)
         }
         guard let outputStream else {
             try await outbound.close(.unexpectedServerError, reason: "User connected already")
+            logger.info("This matches an existing user")
             return
         }
         
@@ -70,7 +110,27 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
     )
     app.addServices(connectionManager)
     
-    
-    
     return app
+}
+
+private func gameParameters(request: Request) -> (device: String?, user: String?, code: String?) {
+    var device: String? = nil
+    var user: String? = nil
+    var code: String? = nil
+    if let deviceSegment = request.uri.queryParameters[GameParameterConstants.device.rawValue] {
+        device = String(deviceSegment)
+    }
+    if let usernameSegment = request.uri.queryParameters[GameParameterConstants.username.rawValue] {
+        user = String(usernameSegment)
+    }
+    if let codeSegment = request.uri.queryParameters[GameParameterConstants.code.rawValue] {
+        code = String(codeSegment)
+    }
+    return (device: device, user: user, code: code)
+}
+
+enum GameParameterConstants: Substring {
+    case device = "device"
+    case username = "name"
+    case code = "code"
 }
