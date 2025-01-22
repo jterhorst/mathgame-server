@@ -56,6 +56,7 @@ struct ConnectionManager: Service {
             self.scores[game]?[name] = 0
             logger.info("Added \(name) to game \(game). Players now include: \(String(describing: self.gameConnections[game]))")
             // await self.send("\(name) joined")
+            await self.updateBattle(connection: outbound)
             await self.send(game: game, event: Event(type: .join, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game]))
             return true
         }
@@ -75,14 +76,12 @@ struct ConnectionManager: Service {
         }
 
         func processAnswer(_ event: Event, connection: Connection) async {
-            // self.logger.info("Answer", metadata: ["answer": .string(event.data)])
             guard let answer = Int(event.data) else { return }
             if let playerName = connection.playerName, let player = await getPlayers(game: connection.roomCode).first(where: { $0.name == playerName }) {
                 var hadCorrectAnswer = false
                 if answer == self.currentBattle[connection.roomCode]?.questions[player.name]?.correctAnswer {
                     await self.updateScore(game: connection.roomCode, name: playerName)
                     hadCorrectAnswer = true
-                    // self.logger.info("Correct answer", metadata: ["player": .string(playerName)])
                 }
                 await self.send(game: connection.roomCode, event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: getPlayers(game: connection.roomCode), activeBattle: self.currentBattle[connection.roomCode]))
                 
@@ -97,6 +96,39 @@ struct ConnectionManager: Service {
             }
         }
         
+        private func updateBattle(connection: Connection) async {
+            if self.previousBattle[connection.roomCode] == nil {
+                self.previousBattle[connection.roomCode] = []
+            }
+            if self.gameModes[connection.roomCode] == nil {
+                self.gameModes[connection.roomCode] = .shared
+            }
+            guard let gameMode = self.gameModes[connection.roomCode] else { return }
+            let players = await self.getPlayers(game: connection.roomCode)
+            var existingBattle = self.currentBattle[connection.roomCode]
+            if existingBattle?.mode == .shared {
+                var firstMatch: Question? = existingBattle?.questions.values.first
+                if firstMatch == nil {
+                    firstMatch = Question()
+                }
+                for player in await self.getPlayers(game: connection.roomCode) {
+                    if existingBattle?.questions[player.name] == nil {
+                        existingBattle?.questions[player.name] = firstMatch
+                    }
+                }
+            } else {
+                for player in await self.getPlayers(game: connection.roomCode) {
+                    if existingBattle?.questions[player.name] == nil {
+                        existingBattle?.questions[player.name] = Question()
+                    }
+                }
+            }
+//            while let usedCards = self.previousBattle[connection.roomCode], usedCards.contains(possibleQuestion) {
+//                possibleQuestion = Battle.new(players: players, mode: gameMode)
+//            }
+            self.currentBattle[connection.roomCode] = existingBattle
+        }
+        
         private func newBattle(connection: Connection) async {
             if self.previousBattle[connection.roomCode] == nil {
                 self.previousBattle[connection.roomCode] = []
@@ -107,9 +139,9 @@ struct ConnectionManager: Service {
             guard let gameMode = self.gameModes[connection.roomCode] else { return }
             let players = await self.getPlayers(game: connection.roomCode)
             var possibleQuestion = Battle.new(players: players, mode: gameMode)
-            while let usedCards = self.previousBattle[connection.roomCode], usedCards.contains(possibleQuestion) {
-                possibleQuestion = Battle.new(players: players, mode: gameMode)
-            }
+//            while let usedCards = self.previousBattle[connection.roomCode], usedCards.contains(possibleQuestion) {
+//                possibleQuestion = Battle.new(players: players, mode: gameMode)
+//            }
             self.currentBattle[connection.roomCode] = possibleQuestion
         }
         
@@ -119,7 +151,7 @@ struct ConnectionManager: Service {
             }
             guard let gameMode = self.gameModes[connection.roomCode] else { return nil }
             let players = await self.getPlayers(game: connection.roomCode)
-            var possibleQuestion = Battle.new(players: players, mode: gameMode)
+            let possibleQuestion = Battle.new(players: players, mode: gameMode)
             return possibleQuestion
         }
 
@@ -133,6 +165,7 @@ struct ConnectionManager: Service {
             guard let battle = self.currentBattle[roomCode] else {
                 logger.info("Failed to return question with code \(roomCode)")
                 return }
+            await self.updateBattle(connection: connection)
             await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(battle), playerName: connection.playerName, players: getPlayers(game: roomCode), activeBattle: battle))
         }
 

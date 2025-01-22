@@ -13,7 +13,7 @@ enum BattleMode: Codable {
 }
 
 struct Battle: Codable, Equatable {
-    let questions: [String: Question]
+    var questions: [String: Question]
     let mode: BattleMode
     
     static func dataString(_ battle: Battle) -> String {
