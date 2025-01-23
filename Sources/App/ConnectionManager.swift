@@ -80,7 +80,7 @@ struct ConnectionManager: Service {
                 return
             }
             
-            if battle.remainingTime == 0 {
+            if battle.remainingTime < 2 {
                 if let existingTimerTask = self.gameTimerTasks[connection.roomCode] {
                     existingTimerTask.cancel()
                 }
@@ -167,6 +167,7 @@ struct ConnectionManager: Service {
 //                possibleQuestion = Battle.new(players: players, mode: gameMode)
 //            }
             self.currentBattle[connection.roomCode] = possibleQuestion
+            await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(possibleQuestion), playerName: nil, players: players, activeBattle: possibleQuestion))
             
             if let existingTask = self.gameTimerTasks[connection.roomCode] {
                 existingTask.cancel()
