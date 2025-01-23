@@ -15,6 +15,7 @@ enum BattleMode: Codable {
 struct Battle: Codable, Equatable {
     var questions: [String: Question]
     let mode: BattleMode
+    var remainingTime: Int = Config.maxTime
     
     static func dataString(_ battle: Battle) -> String {
         do {

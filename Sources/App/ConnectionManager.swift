@@ -75,6 +75,24 @@ struct ConnectionManager: Service {
             self.scores[game] = updatedScores
         }
 
+        func timerTick(connection: Connection) async {
+            guard var battle = self.currentBattle[connection.roomCode] else {
+                return
+            }
+            
+            if battle.remainingTime == 0 {
+                if let existingTimerTask = self.gameTimerTasks[connection.roomCode] {
+                    existingTimerTask.cancel()
+                }
+                await self.send(game: connection.roomCode, event: Event(type: .timeExpired, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle))
+                await self.newBattle(connection: connection)
+            } else {
+                battle.remainingTime = battle.remainingTime - 1
+                self.currentBattle[connection.roomCode] = battle
+                await self.send(game: connection.roomCode, event: Event(type: .timerTick, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle))
+            }
+        }
+        
         func processAnswer(_ event: Event, connection: Connection) async {
             guard let answer = Int(event.data) else { return }
             if let playerName = connection.playerName, let player = await getPlayers(game: connection.roomCode).first(where: { $0.name == playerName }) {
@@ -87,6 +105,12 @@ struct ConnectionManager: Service {
                 
                 if hadCorrectAnswer {
                     // self.logger.info("New question")
+                    if let scoreKey = await self.getScores(game: connection.roomCode).first(where: { (key: String, value: Int) in
+                        return value >= Config.maxScore
+                    }) {
+                        await self.send(game: connection.roomCode, event: Event(type: .gameEnd, data: Battle.dataString(self.currentBattle[connection.roomCode]!), playerName: scoreKey.key, players: getPlayers(game: connection.roomCode), activeBattle: self.currentBattle[connection.roomCode]))
+                        return
+                    }
                     await self.newBattle(connection: connection)
                     guard let battle = self.currentBattle[connection.roomCode] else {
                         return
@@ -143,6 +167,21 @@ struct ConnectionManager: Service {
 //                possibleQuestion = Battle.new(players: players, mode: gameMode)
 //            }
             self.currentBattle[connection.roomCode] = possibleQuestion
+            
+            if let existingTask = self.gameTimerTasks[connection.roomCode] {
+                existingTask.cancel()
+            }
+            
+            let gameTimerTask = Task { [weak self] in
+                while let battle = await self?.currentBattle[connection.roomCode], battle.remainingTime > 0 {
+                    try Task.checkCancellation()
+                    try? await Task.sleep(nanoseconds: 1000000000)
+                    try Task.checkCancellation()
+                    await self?.timerTick(connection: connection)
+                    try Task.checkCancellation()
+                }
+            }
+            self.gameTimerTasks[connection.roomCode] = gameTimerTask
         }
         
         private func battleWithCurrent(connection: Connection) async -> Battle? {
@@ -160,7 +199,8 @@ struct ConnectionManager: Service {
             if self.currentBattle[roomCode] == nil {
                 logger.info("Creating question with code \(roomCode)")
                 
-                self.currentBattle[connection.roomCode] = await battleWithCurrent(connection: connection)
+//                self.currentBattle[connection.roomCode] = await battleWithCurrent(connection: connection)
+                await newBattle(connection: connection)
             }
             guard let battle = self.currentBattle[roomCode] else {
                 logger.info("Failed to return question with code \(roomCode)")
@@ -185,7 +225,7 @@ struct ConnectionManager: Service {
         func resetScores(game: String) async {
             self.scores[game]?.forEach { self.scores[game]?[$0.key] = 0 }
             guard let mode = self.gameModes[game] else { return }
-            self.currentBattle[game] = await Battle.new(players: getPlayers(game: game), mode: mode)
+//            self.currentBattle[game] = await Battle.new(players: getPlayers(game: game), mode: mode)
             guard let battle = self.currentBattle[game] else {
                 return
             }
@@ -197,6 +237,7 @@ struct ConnectionManager: Service {
         var scores: [String: [String: Int]] = [:]
         var rooms: [String: Date] = [:]
         var gameModes: [String: BattleMode] = [:]
+        var gameTimerTasks: [String: Task<Void, Error>] = [:]
         var currentBattle: [String: Battle] = [:]
         var previousBattle: [String: [Battle]] = [:]
         let logger: Logger

@@ -61,35 +61,54 @@ struct GamePlayPage: HTML {
     var name: String?
     var roomCode: String?
     
+    var contentWidth: String {
+#if DEBUG
+      "float-left w-1/2"
+#else
+      "w-full"
+#endif
+    }
+    
     var happyPathContent: some HTML {
         div {
-            div {
-                p {
-                    "Room code: \(roomCode ?? "")"
-                }
-                input(.id("room_entry"), .type(.hidden), .name("room_entry"), .value("\(roomCode ?? "")"))
-                input(.id("name_entry"), .type(.hidden), .name("name_entry"), .value("\(name ?? "")"))
-            }
-            CardView()
-//            PlayersView(players: [Player(name: "Bob", score: 5), Player(name: "John", score: 2)], currentPlayer: name ?? "")
-            div(.id("players_list")) {
-                ul {
-                    
-                }
-            }
-            if name == nil {
+            div(.class(contentWidth)) {
                 div {
                     p {
-                        "Join this game at mathbattle.tv"
+                        "Room code: \(roomCode ?? "")"
+                    }
+                    input(.id("room_entry"), .type(.hidden), .name("room_entry"), .value("\(roomCode ?? "")"))
+                    input(.id("name_entry"), .type(.hidden), .name("name_entry"), .value("\(name ?? "")"))
+                }
+                div {
+                    p(.id("timer_remaining")) {
+                        "--"
+                    }
+                }
+                CardView()
+    //            PlayersView(players: [Player(name: "Bob", score: 5), Player(name: "John", score: 2)], currentPlayer: name ?? "")
+                div(.id("players_list")) {
+                    ul {
+                        
+                    }
+                }
+                if name == nil {
+                    div {
+                        p {
+                            "Join this game at mathbattle.tv"
+                        }
                     }
                 }
             }
-            div(.id("output_box"), .hidden) {
+#if DEBUG
+            div(.id("output_box"), .class("float-right w-1/2 text-xs")) {
                 p {
                     "---"
                 }
             }
-            
+#endif
+            div(.class("clear-both")) {
+                p { "" }
+            }
         }
     }
     

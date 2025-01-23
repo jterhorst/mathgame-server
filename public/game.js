@@ -14,6 +14,7 @@ var output;
 //var question;
 var question_lhs;
 var question_rhs;
+var timeRemainingOutput;
 var intervalId;
 
 function init()
@@ -27,10 +28,13 @@ function init()
 //    question = document.getElementById("math_problem");
     question_lhs = document.getElementById("math_problem_lhs");
     question_rhs = document.getElementById("math_problem_rhs");
+    timeRemainingOutput = document.getElementById("timer_remaining");
 
-    input.value = ""
+    input.value = "";
 //    nameEntry.value = ""
 //    roomEntry.value = ""
+    
+    timeRemainingOutput.innerHTML = "...";
     
     console.log("Ready.")
     
@@ -53,12 +57,14 @@ function openWebSocket(uri)
 function onOpen(evt)
 {
   document.getElementById("output_box").innerHTML = ""
+    timeRemainingOutput.innerHTML = " ";
   writeToScreen("CONNECTED");
 }
 
 function onClose(evt)
 {
   document.getElementById("output_box").innerHTML = ""
+    timeRemainingOutput.innerHTML = " ";
   writeToScreen("DISCONNECTED");
   connected = false
   
@@ -70,6 +76,13 @@ function onMessage(evt)
   writeToScreen('<span style="color: blue;">' + evt.data + '</span>');
   // console.log(JSON.parse(evt.data))
   var rawData = JSON.parse(evt.data)
+    
+    let remainingTime = rawData.activeBattle.remainingTime;
+    console.log("time " + remainingTime + " remaining")
+    if (rawData.activeBattle.remainingTime != undefined) {
+        
+        timeRemainingOutput.innerHTML = rawData.activeBattle.remainingTime;
+    }
     
     if (rawData.players != undefined) {
         var playersList = "<ul>"
