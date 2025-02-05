@@ -17,4 +17,5 @@ struct Event: Codable, Equatable {
     let playerName: String?
     let players: [Player]?
     let activeBattle: Battle?
+    let answerTimeRemaining: Int?
 }

@@ -64,8 +64,13 @@ func buildApplication(_ arguments: some AppArguments) async throws -> some Appli
     wsRouter.ws("game") { request, _ in
         // only allow upgrade if username query parameter exists
         let params = gameParameters(request: request)
-        guard (params.user != nil || params.device != nil) && params.code != nil else {
-//            logger.info("Missing code or user or device")
+        print("params: \(params) for request: \(request.uri.queryParameters)")
+        guard params.code != nil else {
+            print("Missing code: \(request)")
+            return .dontUpgrade
+        }
+        guard params.user != nil || params.device != nil else {
+            print("Missing user or device: \(request)")
             return .dontUpgrade
         }
         return .upgrade([:])
@@ -117,10 +122,10 @@ private func gameParameters(request: Request) -> (device: String?, user: String?
     var device: String? = nil
     var user: String? = nil
     var code: String? = nil
-    if let deviceSegment = request.uri.queryParameters[GameParameterConstants.device.rawValue] {
+    if let deviceSegment = request.uri.queryParameters["device"] {
         device = String(deviceSegment)
     }
-    if let usernameSegment = request.uri.queryParameters[GameParameterConstants.username.rawValue] {
+    if let usernameSegment = request.uri.queryParameters["user"] {
         user = String(usernameSegment)
     }
     if let codeSegment = request.uri.queryParameters[GameParameterConstants.code.rawValue] {

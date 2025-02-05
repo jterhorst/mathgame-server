@@ -18,6 +18,6 @@ struct Config {
     // how long for each question?
     static let maxTime: Int = 20
     
-    // how long do we add to handicap adults to avoid kids meltdown?
+    // how long do we add to handicap adults to avoid kids meltdown? (Implemented as subtraction from timer)
     static let parentPenaltyTime: Int = 10
 }

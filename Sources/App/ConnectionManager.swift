@@ -57,7 +57,7 @@ struct ConnectionManager: Service {
             logger.info("Added \(name) to game \(game). Players now include: \(String(describing: self.gameConnections[game]))")
             // await self.send("\(name) joined")
             await self.updateBattle(connection: outbound)
-            await self.send(game: game, event: Event(type: .join, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game]))
+            await self.send(game: game, event: Event(type: .join, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game], answerTimeRemaining: nil))
             return true
         }
 
@@ -65,13 +65,14 @@ struct ConnectionManager: Service {
             self.gameConnections[game]?[name] = nil
             self.scores[game]?[name] = nil
             // await self.send("\(name) left")
-            await self.send(game: game, event: Event(type: .leave, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game]))
+            await self.send(game: game, event: Event(type: .leave, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game], answerTimeRemaining: nil))
         }
 
         func updateScore(game: String, name: String) async {
             var updatedScores = scores[game] ?? [:]
             updatedScores[name] = (updatedScores[name] ?? 0) + 1
-            await self.send(game: game, event: Event(type: .answer, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game]))
+            
+            await self.send(game: game, event: Event(type: .answer, data: name, playerName: name, players: getPlayers(game: game), activeBattle: self.currentBattle[game], answerTimeRemaining: self.currentBattle[game]?.remainingTime))
             self.scores[game] = updatedScores
         }
 
@@ -84,12 +85,12 @@ struct ConnectionManager: Service {
                 if let existingTimerTask = self.gameTimerTasks[connection.roomCode] {
                     existingTimerTask.cancel()
                 }
-                await self.send(game: connection.roomCode, event: Event(type: .timeExpired, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle))
+                await self.send(game: connection.roomCode, event: Event(type: .timeExpired, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
                 await self.newBattle(connection: connection)
             } else {
                 battle.remainingTime = battle.remainingTime - 1
                 self.currentBattle[connection.roomCode] = battle
-                await self.send(game: connection.roomCode, event: Event(type: .timerTick, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle))
+                await self.send(game: connection.roomCode, event: Event(type: .timerTick, data: Battle.dataString(battle), playerName: nil, players: self.getPlayers(game: connection.roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
             }
         }
         
@@ -97,25 +98,28 @@ struct ConnectionManager: Service {
             guard let answer = Int(event.data) else { return }
             if let playerName = connection.playerName, let player = await getPlayers(game: connection.roomCode).first(where: { $0.name == playerName }) {
                 var hadCorrectAnswer = false
-                if answer == self.currentBattle[connection.roomCode]?.questions[player.name]?.correctAnswer {
+                guard let battle = self.currentBattle[connection.roomCode] else {
+                    return
+                }
+                if answer == battle.questions[player.name]?.correctAnswer {
                     await self.updateScore(game: connection.roomCode, name: playerName)
                     hadCorrectAnswer = true
                 }
-                await self.send(game: connection.roomCode, event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: getPlayers(game: connection.roomCode), activeBattle: self.currentBattle[connection.roomCode]))
+                await self.send(game: connection.roomCode, event: Event(type: .answer, data: "\(answer)", playerName: connection.playerName, players: getPlayers(game: connection.roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
                 
                 if hadCorrectAnswer {
                     // self.logger.info("New question")
                     if let scoreKey = await self.getScores(game: connection.roomCode).first(where: { (key: String, value: Int) in
                         return value >= Config.maxScore
                     }) {
-                        await self.send(game: connection.roomCode, event: Event(type: .gameEnd, data: Battle.dataString(self.currentBattle[connection.roomCode]!), playerName: scoreKey.key, players: getPlayers(game: connection.roomCode), activeBattle: self.currentBattle[connection.roomCode]))
+                        await self.send(game: connection.roomCode, event: Event(type: .gameEnd, data: Battle.dataString(battle), playerName: scoreKey.key, players: getPlayers(game: connection.roomCode), activeBattle: self.currentBattle[connection.roomCode], answerTimeRemaining: battle.remainingTime))
                         return
                     }
                     await self.newBattle(connection: connection)
                     guard let battle = self.currentBattle[connection.roomCode] else {
                         return
                     }
-                    await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(battle), playerName: connection.playerName, players: getPlayers(game: connection.roomCode), activeBattle: battle))
+                    await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(battle), playerName: connection.playerName, players: getPlayers(game: connection.roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
                 }
             }
         }
@@ -167,7 +171,7 @@ struct ConnectionManager: Service {
 //                possibleQuestion = Battle.new(players: players, mode: gameMode)
 //            }
             self.currentBattle[connection.roomCode] = possibleQuestion
-            await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(possibleQuestion), playerName: nil, players: players, activeBattle: possibleQuestion))
+            await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(possibleQuestion), playerName: nil, players: players, activeBattle: possibleQuestion, answerTimeRemaining: possibleQuestion.remainingTime))
             
             if let existingTask = self.gameTimerTasks[connection.roomCode] {
                 existingTask.cancel()
@@ -207,7 +211,7 @@ struct ConnectionManager: Service {
                 logger.info("Failed to return question with code \(roomCode)")
                 return }
             await self.updateBattle(connection: connection)
-            await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(battle), playerName: connection.playerName, players: getPlayers(game: roomCode), activeBattle: battle))
+            await self.send(game: connection.roomCode, event: Event(type: .battle, data: Battle.dataString(battle), playerName: connection.playerName, players: getPlayers(game: roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
         }
 
         func getScores(game: String) async -> [String: Int] {
@@ -230,7 +234,7 @@ struct ConnectionManager: Service {
             guard let battle = self.currentBattle[game] else {
                 return
             }
-            await self.send(game: game, event: Event(type: .battle, data: Battle.dataString(battle), playerName: "", players: getPlayers(game: game), activeBattle: battle))
+            await self.send(game: game, event: Event(type: .battle, data: Battle.dataString(battle), playerName: "", players: getPlayers(game: game), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
         }
 
         var gameConnections: [String: [String: Connection]]
@@ -303,7 +307,10 @@ struct ConnectionManager: Service {
             await outboundCounnections.processAnswer(obj, connection: connection)
         } else if obj.type == .heartbeat {
             self.logger.info("Heartbeat")
-            await outboundCounnections.send(game: connection.roomCode, event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.getPlayers(game: connection.roomCode), activeBattle: outboundCounnections.currentBattle[connection.roomCode]))
+            guard let battle = await outboundCounnections.currentBattle[connection.roomCode] else {
+                return
+            }
+            await outboundCounnections.send(game: connection.roomCode, event: Event(type: .heartbeat, data: "pong!", playerName: connection.playerName, players: outboundCounnections.getPlayers(game: connection.roomCode), activeBattle: battle, answerTimeRemaining: battle.remainingTime))
         }
     }
 
